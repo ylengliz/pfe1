@@ -20,6 +20,7 @@
 #include "main.h"
 #include "stdio.h"
 #include "stm32f411e_discovery_accelerometer.h"
+#include "ab_sensor_hub.h"
 
 #define DEFAULT_uhCCR1_Val  100 /* 10kHz/100 value */
 #define DEFAULT_uhCCR2_Val  200 /* 10kHz/50 value */
@@ -36,6 +37,8 @@ TIM_HandleTypeDef AB_TimHandle;
 TIM_HandleTypeDef AL_TimHandle;
 //TMsg MsgDat;
 //TMsg MsgCmd;
+ volatile int Message_Length;
+
 
 /* USER CODE BEGIN PV */
 int16_t uartBuf[3] ;
@@ -47,6 +50,10 @@ static void MX_GPIO_Init(void);
 static void MX_SPI1_Init(void);
 static void MX_USART2_UART_Init(void);
 void TIM_AL_Config(void);
+static uint32_t DWT_Delay_Init(void);
+void AB_Init(void);
+
+
 /* USER CODE BEGIN PFP */
 
 /* USER CODE END PFP */
@@ -91,34 +98,91 @@ int main(void)
   /* USER CODE BEGIN 2 */
   BSP_ACCELERO_Init();
 
-
+  /* Initialize cycle counter */
+  DWT_Delay_Init();
 
   /* Initialize timers for algorithms synchronization */
   TIM_AL_Config();
 
+  /* AlgoBuilder initialization */
+  AB_Init();
+
+
+  /* To start reading in case of interrupt driven flow */
+  //sensor_read_request = 1;
+
+  /* Ensure that User Button pressing will be evaluated from this point */
+  //DataLoggerActive = 0;
+  //DataLoggerStatusChanged = 0;
 
 
   /* Infinite loop */
-  /* USER CODE BEGIN WHILE */
   while (1)
   {
-    /* USER CODE END WHILE */
 
 
 
+#if 0
 	  BSP_ACCELERO_GetXYZ( uartBuf);
+	  HAL_UART_Transmit(&huart2, (uint8_t*)uartBuf, 3, HAL_MAX_DELAY);
+	   HAL_Delay(2000);
+#endif
 
-
-	     HAL_UART_Transmit(&huart2, (uint8_t*)uartBuf, 3, HAL_MAX_DELAY);
-	     HAL_Delay(2000);
-    /* USER CODE BEGIN 3 */
   }
   /* USER CODE END 3 */
 }
 
+void AB_Init(void)
+{
+	Sensor_Hub_Init(0, 10, 1);
+	Accelero_Init();
+	Message_Length = 12;
+}
+/**
+  * @brief  TIM_AB start timer
+  * @param  None
+  * @retval None
+  */
+void TIM_AB_Start(void)
+{
+  HAL_TIM_Base_Start_IT(&AB_TimHandle);
+}
 
+/**
+  * @brief  TIM_AB stop timer
+  * @param  None
+  * @retval None
+  */
+void TIM_AB_Stop(void)
+{
+  HAL_TIM_Base_Stop_IT(&AB_TimHandle);
+}
 
+/**
+  * @brief  TIM_AL start timer
+  * @param  None
+  * @retval None
+  */
+void TIM_AL_Start(void)
+{
+  HAL_TIM_OC_Start_IT(&AL_TimHandle, TIM_CHANNEL_1);
+  HAL_TIM_OC_Start_IT(&AL_TimHandle, TIM_CHANNEL_2);
+  HAL_TIM_OC_Start_IT(&AL_TimHandle, TIM_CHANNEL_3);
+  HAL_TIM_OC_Start_IT(&AL_TimHandle, TIM_CHANNEL_4);
+}
 
+/**
+  * @brief  TIM_AL stop timer
+  * @param  None
+  * @retval None
+  */
+void TIM_AL_Stop(void)
+{
+  HAL_TIM_OC_Stop_IT(&AL_TimHandle, TIM_CHANNEL_1);
+  HAL_TIM_OC_Stop_IT(&AL_TimHandle, TIM_CHANNEL_2);
+  HAL_TIM_OC_Stop_IT(&AL_TimHandle, TIM_CHANNEL_3);
+  HAL_TIM_OC_Stop_IT(&AL_TimHandle, TIM_CHANNEL_4);
+}
 
 
 /**
@@ -167,7 +231,6 @@ void TIM_AL_Config(void)
 
 
 
-
 /**
   * @brief System Clock Configuration
   * @retval None
@@ -210,6 +273,41 @@ void SystemClock_Config(void)
   if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_3) != HAL_OK)
   {
     Error_Handler();
+  }
+}
+
+/**
+ * @brief  Initializes DWT_Clock_Cycle_Count for DWT_GetTickUS function
+ * @retval Error DWT counter (1: clock cycle counter not started, 0: clock cycle counter works)
+ */
+static uint32_t DWT_Delay_Init(void)
+{
+  /* Disable TRC */
+  CoreDebug->DEMCR &= ~CoreDebug_DEMCR_TRCENA_Msk;
+
+  /* Enable TRC */
+  CoreDebug->DEMCR |= CoreDebug_DEMCR_TRCENA_Msk;
+
+  /* Disable clock cycle counter */
+  DWT->CTRL &= ~DWT_CTRL_CYCCNTENA_Msk;
+
+  /* Enable clock cycle counter */
+  DWT->CTRL |= DWT_CTRL_CYCCNTENA_Msk;
+
+  /* Reset the clock cycle counter value */
+  DWT->CYCCNT = 0;
+
+  /* Delay 1ms */
+  HAL_Delay(1);
+
+  /* Check if clock cycle counter has started */
+  if (DWT->CYCCNT)
+  {
+     return 0; /* Clock cycle counter started */
+  }
+  else
+  {
+    return 1; /* Clock cycle counter not started */
   }
 }
 
